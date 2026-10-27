@@ -1,0 +1,57 @@
+from fastapi import HTTPException, status
+
+from app.core.security import hash_password, verify_password
+from app.models.user_model import Role, User
+from app.repositories.user_repository import UserRepository
+from app.schemas.user_schemas import UserCreate, UserUpdate
+
+
+class UserService:
+
+    def __init__(self, repo: UserRepository):
+        self.repo = repo
+
+    def register_user(self, data: UserCreate) -> User:
+        if self.repo.get_by_email(data.email):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
+        user = User(
+            name=data.name,
+            email=data.email,
+            password=hash_password(data.password),
+            role=getattr(data, "role", Role.customer),
+        )
+        return self.repo.create(user)
+
+    def login(self, email: str, password: str) -> User:
+        user = self.repo.get_by_email(email)
+        if not user or not verify_password(password, user.password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password",
+            )
+        user.is_logged_in = True
+        return self.repo.update(user)
+
+    def list_users(self) -> list[User]:
+        return self.repo.get_all()
+
+    def get_user_by_id(self, user_id: int) -> User:
+        user = self.repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        return user
+
+    def update_profile(self, user_id: int, data: UserUpdate) -> User:
+        user = self.get_user_by_id(user_id)
+        if data.name is not None:
+            user.name = data.name
+        if data.email is not None:
+            user.email = data.email
+        if data.password is not None:
+            user.password = hash_password(data.password)
+        return self.repo.update(user)
+
+    def delete_user(self, user_id: int) -> None:
+        user = self.get_user_by_id(user_id)
+        self.repo.delete(user)
+
